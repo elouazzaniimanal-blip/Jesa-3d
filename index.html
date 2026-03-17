@@ -7,76 +7,228 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Inter:wght@400;600&display=swap');
         body { margin: 0; background-color: #050505; overflow: hidden; font-family: 'Inter', sans-serif; }
-        
-        /* HUD MODIFIÉ */
         #hud { 
             position: absolute; top: 20px; left: 20px; color: white; 
-            background: rgba(10, 10, 10, 0.95); padding: 20px; 
+            background: rgba(10, 10, 10, 0.95); padding: 25px; 
             border-left: 6px solid #ff6b00; z-index: 100;
             border-radius: 4px; box-shadow: 0 15px 35px rgba(0,0,0,0.7);
-            min-width: 280px;
+            min-width: 250px; border-bottom: 1px solid rgba(255,255,255,0.1);
         }
-        .logo { font-family: 'Orbitron', sans-serif; color: #ff6b00; font-size: 14px; margin-bottom: 15px; }
-        .info-massif { font-size: 13px; line-height: 1.6; margin-bottom: 20px; color: #ccc; }
-        .info-massif strong { color: #fff; }
-        
-        .btn-magique {
-            width: 100%; padding: 12px; margin-bottom: 8px; border: none; border-radius: 4px;
-            cursor: pointer; font-weight: 600; font-size: 12px; transition: 0.3s;
-            text-align: left; display: flex; align-items: center;
-        }
-        .btn-calc { background: #333; color: white; border: 1px solid #444; }
-        .btn-temp { background: #005bb7; color: white; }
-        .btn-co2 { background: #1e7e34; color: white; }
-        .btn-magique:hover { opacity: 0.8; transform: translateX(5px); }
+        .logo { font-family: 'Orbitron', sans-serif; color: #ff6b00; font-size: 16px; letter-spacing: 3px; margin-bottom: 15px; opacity: 0.9; }
+        .type-title { font-size: 14px; font-weight: 700; color: #ffffff; text-transform: uppercase; margin-bottom: 10px; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 5px; }
+        .label { color: #aaa; }
+        .val { color: #ff6b00; font-weight: bold; }
+        .val-green { color: #2ecc71; font-weight: bold; }
     </style>
 </head>
 <body>
-
     <div id="hud">
-        <div class="logo">JESA SMART MONITORING</div>
-        
-        <div class="info-massif">
-            ID Massif : <strong>MS-ST-2024-001</strong><br>
-            Type Béton : <strong>CEM III/A (Bas Carbone)</strong><br>
-            Date Coulage : <strong>14/05/2024</strong>
-        </div>
-
-        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin-bottom: 15px;">
-
-        <button class="btn-magique btn-calc" onclick="alert('Ouverture de la Note de Calcul Eurocode 2...')">
-            📄 NOTE DE CALCUL
-        </button>
-        <button class="btn-magique btn-temp" onclick="alert('Maturité : 88%\nTempérature actuelle : 34.5°C\nDécoffrage : AUTORISÉ ✅')">
-            🌡️ SMART CURING / TEMPÉRATURE
-        </button>
-        <button class="btn-magique btn-co2" onclick="alert('Économie CO2 : 64%\nEmpreinte : 125 kg/m³')">
-            🌱 IMPACT CO2
-        </button>
+        <div class="logo">JESA BIM 3D</div>
+        <div id="txt-type" class="type-title">IDENTIFICATION...</div>
+        <div class="data-row"><span class="label">Section théorique (As)</span><span id="v-as" class="val-green">---</span></div>
+        <div class="data-row"><span id="lbl-n1" class="label">---</span><span id="v-n1" class="val">---</span></div>
+        <div class="data-row"><span id="lbl-n2" class="label">---</span><span id="v-n2" class="val">---</span></div>
     </div>
 
-    <script>
-        // TA GÉOMÉTRIE INITIALE RESTE INCHANGÉE ICI
-        // (Garder ton code Three.js existant pour la semelle et le corbeau)
+<script>
+// --- CONFIGURATION ---
+const p = new URLSearchParams(window.location.search);
+const type = (p.get('type') || 'CORBEAU').toUpperCase();
+
+let h_raw = parseFloat(p.get('h')) || 600;
+let h = h_raw > 10 ? h_raw/1000 : h_raw;
+let b_raw = parseFloat(p.get('b')) || 400;
+let b = b_raw > 10 ? b_raw/1000 : b_raw;
+
+const asStr = p.get('as') || '12.50*8*6*0.40*0.30*3'; 
+const parts = asStr.split('*').map(s => s.trim());
+
+const sectionValue = (parts[0] && parts[0] !== "0.00") ? parts[0] : "12.50";
+const n1 = parseInt(parts[1]) || 8; 
+const n2 = parseInt(parts[2]) || 6; 
+const nbCF = parseInt(parts[5]) || 3; 
+
+document.getElementById('v-as').innerText = sectionValue + " cm²";
+document.getElementById('v-n1').innerText = n1 + " HA";
+document.getElementById('v-n2').innerText = n2 + " HA";
+
+// --- SCENE ---
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+const group = new THREE.Group();
+const matBeton = new THREE.MeshStandardMaterial({ color: 0x888888, transparent: true, opacity: 0.25, roughness: 0.5 });
+const matOrange = new THREE.MeshStandardMaterial({ color: 0xff6b00, metalness: 0.8, roughness: 0.2 });
+const matLineOrange = new THREE.LineBasicMaterial({ color: 0xff6b00 });
+const matLineBlanc = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 }); 
+const matBlanc = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.6, transparent: true, opacity: 0.5 });
+const matSocle = new THREE.MeshStandardMaterial({ color: 0x888888, transparent: true, opacity: 0.25, depthWrite: false });
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1);
+sun.position.set(5, 10, 7.5);
+scene.add(sun);
+
+// --- FERRAILLAGE VERTICAL DU POTEAU (AJOUTÉ) ---
+const hauteurCagePoteau = 2.0; 
+for(let i=0; i<4; i++) {
+    const barrePoteau = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, hauteurCagePoteau), matOrange);
+    const posX = (i < 2) ? -0.15 : 0.15;
+    const posZ = (i % 2 === 0) ? -0.15 : 0.15;
+    barrePoteau.position.set(posX, 0, posZ);
+    group.add(barrePoteau);
+}
+
+if (type === "CORBEAU") {
+    document.getElementById('txt-type').innerText = "CORBEAU TRAPÉZOÏDAL";
+    document.getElementById('lbl-n1').innerText = "Tirants Sup.";
+    document.getElementById('lbl-n2').innerText = "Cadres Horiz.";
+    
+    const ac = 0.60; const dmin = 0.25; 
+    const shape = new THREE.Shape();
+    shape.moveTo(0,0); shape.lineTo(ac,0); shape.lineTo(ac,-dmin); shape.lineTo(0,-h); shape.lineTo(0,0);
+    
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: b, bevelEnabled: false });
+    const corbeau = new THREE.Mesh(geometry, matBeton);
+    corbeau.position.set(0.25, h/2, -b/2);
+    group.add(corbeau);
+    
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 2, 0.5), matBeton));
+
+    // --- TIRANTS PRINCIPAUX HA16 (CORRIGÉ & AJOUTÉ) ---
+    for(let i=0; i<n1; i++){
+        const tirant = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.75), matOrange);
+        tirant.rotation.z = Math.PI/2;
+        tirant.position.set(0.45, h/2 - 0.04, -b/2 + 0.05 + (i*(b-0.1)/(n1-1||1)));
+        group.add(tirant);
+    }
+
+    // --- CADRES HORIZONTAUX DE COUTURE (AJOUTÉ) ---
+    for(let j=0; j<n2; j++){
+        const yPos = (h/2) - 0.15 - (j * (h - dmin - 0.10) / (n2 - 1 || 1));
+        const distanceDuHaut = (h/2) - yPos;
+        const largeurReduite = ac * (1 - (distanceDuHaut / h));
+        const largC = largeurReduite * 0.85; 
         
-        // CORRECTION FERRAILLAGE DU CORBEAU (Uniquement pour le réalisme)
-        // Les cadres passent en horizontal comme sur ton schéma technique
-        function ajouterFerraillageRealiste(group) {
-            const matOrange = new THREE.MeshStandardMaterial({ color: 0xff6b00, metalness: 0.8, roughness: 0.2 });
-            
-            // Ajout des cadres horizontaux (Couture)
-            for(let k=0; k<4; k++) {
-                const geometry = new THREE.RingGeometry(0.18, 0.2, 4); 
-                const mesh = new THREE.Mesh(geometry, matOrange);
-                mesh.rotation.x = Math.PI / 2;
-                mesh.position.set(0.15, 0.1 + (k * 0.08), 0); // Empilement horizontal
-                group.add(mesh);
-            }
+        const pts = [];
+        pts.push(new THREE.Vector3(0.28, yPos, -b/2 + 0.04));
+        pts.push(new THREE.Vector3(0.28 + largC, yPos, -b/2 + 0.04));
+        pts.push(new THREE.Vector3(0.28 + largC, yPos, b/2 - 0.04));
+        pts.push(new THREE.Vector3(0.28, yPos, b/2 - 0.04));
+        pts.push(new THREE.Vector3(0.28, yPos, -b/2 + 0.04));
+
+        const geomCadre = new THREE.BufferGeometry().setFromPoints(pts);
+        const cadreH = new THREE.Line(geomCadre, matLineOrange);
+        group.add(cadreH);
+    }
+
+} else {
+    document.getElementById('txt-type').innerText = "SEMELLE À ENCUVEMENT";
+    document.getElementById('lbl-n1').innerText = "Nappe X";
+    document.getElementById('lbl-n2').innerText = "Nappe Y";
+
+    const poteauA = parseFloat(parts[3]) || 0.40; 
+    const eRadier = parseFloat(parts[4]) || 0.30; 
+    const L = 1.6; 
+    const hf = h; 
+    const totalH = hf + eRadier;
+
+    const socle = new THREE.Mesh(new THREE.BoxGeometry(L, eRadier, L), matSocle);
+    socle.position.y = -totalH/2 + eRadier/2;
+    group.add(socle);
+
+    const shape = new THREE.Shape();
+    shape.moveTo(-L/2, -L/2); shape.lineTo(L/2, -L/2); shape.lineTo(L/2, L/2); shape.lineTo(-L/2, L/2); shape.lineTo(-L/2, -L/2);
+    const hole = new THREE.Path();
+    hole.moveTo(-poteauA/2, -poteauA/2); hole.lineTo(poteauA/2, -poteauA/2); hole.lineTo(poteauA/2, poteauA/2); hole.lineTo(-poteauA/2, poteauA/2); hole.lineTo(-poteauA/2, -poteauA/2);
+    shape.holes.push(hole);
+    const futGeo = new THREE.ExtrudeGeometry(shape, { depth: hf, bevelEnabled: false });
+    const fut = new THREE.Mesh(futGeo, matBeton);
+    fut.rotation.x = Math.PI / 2; 
+    fut.position.y = -totalH/2 + eRadier + hf;
+    group.add(fut);
+
+    const hPoteauVisible = hf + 0.8;
+    const poteau = new THREE.Mesh(new THREE.BoxGeometry(poteauA-0.05, hPoteauVisible, poteauA-0.05), matBlanc);
+    poteau.position.y = -totalH/2 + eRadier + (hPoteauVisible)/2 - 0.1;
+    group.add(poteau);
+
+    const posAciers = [{x: 1, z: 1}, {x: 1, z: -1}, {x: -1, z: 1}, {x: -1, z: -1}];
+    posAciers.forEach(pos => {
+        const barP = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, hPoteauVisible + 0.2), matOrange);
+        const offset = (poteauA/2) - 0.06;
+        barP.position.set(offset * pos.x, poteau.position.y, offset * pos.z);
+        group.add(barP);
+    });
+
+    const espacementCadres = Math.min(poteauA, 0.25); 
+    const nbCadresPoteau = Math.floor(hPoteauVisible / espacementCadres);
+
+    for (let k = 0; k < nbCadresPoteau; k++) {
+        const yPos = (poteau.position.y - hPoteauVisible / 2) + (k * espacementCadres) + 0.1;
+        if(yPos < (poteau.position.y + hPoteauVisible/2)) {
+            const dim = poteauA - 0.08;
+            const pts = [];
+            pts.push(new THREE.Vector3(-dim/2, 0, -dim/2));
+            pts.push(new THREE.Vector3(dim/2, 0, -dim/2));
+            pts.push(new THREE.Vector3(dim/2, 0, dim/2));
+            pts.push(new THREE.Vector3(-dim/2, 0, dim/2));
+            pts.push(new THREE.Vector3(-dim/2, 0, -dim/2));
+            const geom = new THREE.BufferGeometry().setFromPoints(pts);
+            const etrier = new THREE.Line(geom, matLineOrange);
+            etrier.position.y = yPos;
+            group.add(etrier);
         }
-        
-        // Initialisation de la scène (standard)
-        const scene = new THREE.Scene();
-        // ... (Ton code de rendu ici)
-    </script>
+    }
+
+    for(let k=0; k < nbCF; k++){
+        const dimF = L - 0.20; 
+        const ptsF = [];
+        ptsF.push(new THREE.Vector3(-dimF/2, 0, -dimF/2));
+        ptsF.push(new THREE.Vector3(dimF/2, 0, -dimF/2));
+        ptsF.push(new THREE.Vector3(dimF/2, 0, dimF/2));
+        ptsF.push(new THREE.Vector3(-dimF/2, 0, dimF/2));
+        ptsF.push(new THREE.Vector3(-dimF/2, 0, -dimF/2));
+        const geomF = new THREE.BufferGeometry().setFromPoints(ptsF);
+        const cadreEncuv = new THREE.Line(geomF, matLineOrange);
+        cadreEncuv.position.y = -totalH/2 + eRadier + (hf * (k+1)/(nbCF+1));
+        group.add(cadreEncuv);
+    }
+
+    const bottomLevel = -totalH/2;
+    for(let i=0; i<n1; i++){
+        const barX = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, L-0.1), matOrange);
+        barX.rotation.x = Math.PI/2;
+        const posX = -(L-0.2)/2 + (i * (L-0.2) / (n1-1 || 1));
+        barX.position.set(posX, bottomLevel + 0.07, 0); 
+        group.add(barX);
+    }
+    for(let j=0; j<n2; j++){
+        const barY = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, L-0.1), matBlanc);
+        barY.rotation.z = Math.PI/2;
+        const posZ = -(L-0.2)/2 + (j * (L-0.2) / (n2-1 || 1));
+        barY.position.set(0, bottomLevel + 0.10, posZ); 
+        group.add(barY);
+    }
+}
+
+
+
+scene.add(group);
+camera.position.set(2.8, 2.2, 2.8);
+camera.lookAt(0,0,0);
+
+function animate(){
+    requestAnimationFrame(animate);
+    group.rotation.y += 0.004;
+    renderer.render(scene, camera);
+}
+animate();
+</script>
 </body>
 </html>
